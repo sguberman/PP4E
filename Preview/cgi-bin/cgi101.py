@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import cgi
+import cgi, html
 
 
 form = cgi.FieldStorage()
@@ -8,4 +8,4 @@ print('<title>Reply Page</title>')
 if 'user' not in form:
     print('<h1>Who are you?</h1>')
 else:
-    print('<h1>Hello <i>{}</i>!'.format(cgi.escape(form['user'].value)))
+    print('<h1>Hello <i>{}</i>!'.format(html.escape(form['user'].value)))
