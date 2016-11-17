@@ -1,5 +1,5 @@
 import shelve
-from .person_alternative import Person, Manager
+from person_alternative import Person, Manager
 
 
 bob = Person('Bob Smith', 42, 30000, 'software')

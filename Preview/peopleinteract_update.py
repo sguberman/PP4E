@@ -1,6 +1,6 @@
 # interactive updates
 import shelve
-from Preview.person_alternative import Person
+from person_alternative import Person
 
 
 fieldnames = ('name', 'age', 'job', 'pay')
