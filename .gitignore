@@ -1,0 +1,7 @@
+*.dir
+*.dat
+*.pkl
+*cache*
+.idea/
+*.bak
+*pickle*
