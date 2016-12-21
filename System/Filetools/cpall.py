@@ -23,7 +23,7 @@ def copyfile(frompath, topath, maxfileload=maxfileload):
     else:
         with open(frompath, 'rb') as fromfile, open(topath, 'wb') as tofile:
             while True:
-                bytesfrom = frompath.read(blksize)
+                bytesfrom = fromfile.read(blksize)
                 if not bytesfrom:
                     break
                 tofile.write(bytesfrom)
