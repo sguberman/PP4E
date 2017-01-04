@@ -12,7 +12,7 @@ from PIL import Image
 from PIL.ImageTk import PhotoImage
 
 
-def make_thumbes(imgdir, size=(100, 100), subdir='thumbs'):
+def make_thumbs(imgdir, size=(100, 100), subdir='thumbs'):
     """
     get thumbnail images for all images in a directory; for each image,
     create and save a new thumb or load and return an existing thumb;
@@ -82,7 +82,7 @@ def viewer(imgdir, kind=Toplevel, cols=None):
     win.title('Viewer: ' + imgdir)
     quit = Button(win, text='Quit', command=win.quit, bg='beige')
     quit.pack(fill=X, side=BOTTOM)
-    thumbs = make_thumbes(imgdir)
+    thumbs = make_thumbs(imgdir)
     if not cols:
         cols = int(math.ceil(math.sqrt(len(thumbs))))
 
