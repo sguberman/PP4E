@@ -50,7 +50,7 @@ from tkinter.messagebox import showinfo, showerror, askyesno
 from tkinter.simpledialog import askstring, askinteger
 from tkinter.colorchooser import askcolor
 
-from PP4E.Gui.Tools.guimaker import *
+from ..Tools.guimaker import *
 
 
 # general configurations
@@ -111,7 +111,7 @@ class TextEditor:  # mix with menu/toolbar Frame class
     # Unicode configurations
     # imported in class to allow overrides in subclass or self
     if __name__ == '__main__':
-        from textConfig import (
+        from .textConfig import (
             opensAskUser, opensEncoding, savesUseKnownEncoding, savesAskUser,
             savesEncoding)
     else:
@@ -209,4 +209,141 @@ class TextEditor:  # mix with menu/toolbar Frame class
         ]
 
     def makeWidgets(self):  # run by GuiMaker.__init__
+        name = Label(self, bg='black', fg='white')
+        name.pack(side=TOP, fill=X)
+
+        vbar = Scrollbar(self)
+        hbar = Scrollbar(self, orient='horizontal')
+        text = Text(self, padx=5, wrap='none')
+        text.config(undo=1, autoseparators=1)
+
+        vbar.pack(side=RIGHT, fill=Y)
+        hbar.pack(side=BOTTOM, fill=X)
+        text.pack(side=TOP, fill=BOTH, expand=YES)
+
+        text.config(yscrollcommand=vbar.set)
+        text.config(xscrollcommand=hbar.set)
+        vbar.config(command=text.yview)
+        hbar.config(command=text.xview)
+
+        # 2.0: apply user configs or defaults
+        startfont = configs.get('font', self.fonts[0])
+        startbg = configs.get('bg', self.colors[0]['bg'])
+        startfg = configs.get('fg', self.colors[0]['fg'])
+        text.config(font=startfont, bg=startbg, fg=startfg)
+        if 'height' in configs:
+            text.config(height=configs['height'])
+        if 'width' in configs:
+            text.config(width=configs['width'])
+        self.text = text
+        self.filelabel = name
+
+    ##########################################################################
+    # File menu commands
+    ##########################################################################
+
+    def my_askopenfilename(self):
+        if not self.openDialog:
+            self.openDialog = Open(initialdir=self.startfiledir,
+                                   filetypes=self.ftypes)
+        return self.openDialog.show()
+
+    def my_asksaveasfilename(self):
+        if not self.saveDialog:
+            self.saveDialog = SaveAs(initialdir=self.startfiledir,
+                                     filetypes=self.ftypes)
+        return self.saveDialog.show()
+
+    def onOpen(self, loadFirst='', loadEncode=''):
+        """
+        2.1: total rewrite for Unicode support; open in text mode with an
+        encoding passed in, input from the user, in textconfig, or platform
+        default, or open as binary bytes for arbitrary Unicode encodings as
+        last resor and drop \r iin Windows end-lines if present so text
+        displays normally; content fetches are returned as str, so need to
+        encode on saves: keep encoding used here;
+
+        tests if file is okay ahead of time to try to avoid opens; we could
+        also load and manually decode bytes to str to avoid multiple open
+        attempts, but this is unlikely to try all cases;
+
+        encoding behavior is configurable in the local textConfig.py:
+        1) try known type first if passed in by client (email charsets)
+        2) if opensAskUser True, try user input next (prefill with defaults)
+        3) if opensEncoding nonempty, try this encoding next
+        4) try sys.getdefaultencoding() platform default
+        5) finally try binary mode bytes and Tk policy as last resort
+        """
+        if self.text_edit_modified():
+            if not askyesno('PyEdit', 'Text has changed: discard changes?'):
+                return
+        file = loadFirst or self.my_askopenfilename()
+
+        if not file:
+            return
+
+        if not os.path.isfile(file):
+            showerror('PyEdit', 'Could not open file ' + file)
+            return
+
+        # try known encoding if passed and accurate (eg, email)
+        text = None
+        if loadEncode:
+            try:
+                text = open(file, 'r', encoding=loadEncode).read()
+                self.knownEncoding = loadEncode
+            except (UnicodeError, LookupError, IOError):
+                pass
+
+        # try user input, prefill with next choice as default
+        if text is None and self.opensAskUser:
+            self.update()  # else dialog doesn't appear in rare cases
+            askuser = askstring('PyEdit', 'Enter Unicode encoding for open',
+                                initialvalue=(self.opensEncoding or
+                                              sys.getdefaultencoding() or ''))
+            self.text.focus()
+            if askuser:
+                try:
+                    text = open(file, 'r', encoding=askuser).read()
+                    self.knownEncoding = askuser
+                except (UnicodeError, LookupError, IOError):
+                    pass
+
+        # try config file
+        if text is None and self.opensEncoding:
+            try:
+                text = open(file, 'r', encoding=self.opensEncoding).read()
+                self.knownEncoding = self.opensEncoding
+            except (UnicodeError, LookupError, IOError):
+                pass
+
+        # try platform default
+        if text is None:
+            try:
+                text = open(file, 'r', encoding=sys.getdefaultencoding()).read()
+                self.knownEncoding = sys.getdefaultencoding()
+            except (UnicodeError, LookupError, IOError):
+                pass
+
+        # last resort: use binary bytes and rely on Tk to decode
+        if text is None:
+            try:
+                text = open(file, 'rb').read()
+                text = text.replace(b'\r\n', b'\n')
+                self.knownEncoding = None
+            except IOError:
+                pass
+
+        if text is None:
+            showerror('PyEdit', 'Could not decode and open file ' + file)
+        else:
+            self.setAllText(text)
+            self.setFileName(file)
+            self.text.edit_reset()  # 2.0: clear undo/redo stacks
+            self.text.edit_modified(0)  # 2.0: clear modified flag
+
+    def onSave(self):
+        self.onSaveAs(self.currfile)
+
+    def onSaveAs(self, forcefile=None):
         pass
