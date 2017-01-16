@@ -699,4 +699,23 @@ class TextEditor:  # mix with menu/toolbar Frame class
             myqueue.put(matches)
 
     def grepThreadConsumer(self, grepkey, encoding, myqueue, mypopup):
-        pass
+        """
+        in the main GUI thread: watch queue for results or [];
+        there may be multiple active grep threads/loops/queues;
+        there may be other types of threads/checkers in process,
+        especially when PyEdit is attached component (PyMailGUI);
+        """
+        import queue
+
+        try:
+            matches = myqueue.get(block=False)
+        except queue.Empty:
+            myargs = (grepkey, encoding, myqueue, mypopup)
+            self.after(250, self.grepThreadConsumer, *myargs)
+        else:
+            mypopup.destroy()
+            self.update()
+            if not matches:
+                showinfo('PyEdit', 'Grep found no matches for: %r' % grepkey)
+            else:
+                self.grepMatchesList(matches, grepkey, encoding)
