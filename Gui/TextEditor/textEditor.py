@@ -346,4 +346,127 @@ class TextEditor:  # mix with menu/toolbar Frame class
         self.onSaveAs(self.currfile)
 
     def onSaveAs(self, forcefile=None):
-        pass
+        """
+        2.1: total rewrite for Unicord support: Text content is always
+        returned as str, so we must deal with encodings to save to a file
+        here, regardless of open mode of the output file (binary requires
+        bytes, and text must encode); tries the encoding used when opened or
+        saved (if known), user input, config file setting, and platform
+        default last; most users can use platform default;
+
+        retains successful encoding name here for next save, because this may
+        be the first Save after New or a manual text insertion; Save and
+        SaveAs may both be used for Save, but SaveAs usage is unclear); gui
+        prompts are prefilled with the known encoding if there is one;
+
+        does manual text.encode() to avoid creating file; text mode files
+        perform platform specific endline conversion: Windows \r dropped if
+        present on open by text mode (auto) and binary mode (manually); if
+        manual content inserts, must delete \r else duplicates here;
+        knownEncoding=None before first Open or Save, after New, if binary
+        Open;
+
+        encoding behavior is configurable in the local textConfig.py:
+        1) if savesUseKnownEncoding > 0, try encoding from last open or save
+        2) if savesAskUser True, try user input next
+        3) if savesEncoding nonempty, try this encoding next
+        4) tries sys.getdefaultencoding() as a last resort
+        """
+        filename = forcefile or self.my_asksaveasfilename()
+        if not filename:
+            return
+
+        text = self.getAllText()
+        encpick = None
+
+        # try known encoding at latest Open or Save, if any
+        if self.knownEncoding and ((
+            forcefile and self.savesUseKnownEncoding >= 1) or (
+            not forcefile and self.savesUseKnownEncoding >= 2)):
+            try:
+                text.encode(self.knownEncoding)
+                encpick = self.knownEncoding
+            except UnicodeError:
+                pass
+
+        # try user input, prefill with known type, else next choice
+        if not encpick and self.savesAskUser:
+            self.update()
+            askuser = askstring('PyEdit', 'Enter Unicode encoding for save',
+                                initialvalue=(self.knownEncoding or
+                                              self.savesEncoding or
+                                              sys.getdefaultencoding() or ''))
+            self.text.focus()
+            if askuser:
+                try:
+                    text.encode(askuser)
+                    encpick = askuser
+                except (UnicodeError, LookupError):
+                    pass
+
+        # try config file
+        if not encpick and self.savesEncoding:
+            try:
+                text.encode(self.savesEncoding)
+                encpick = self.savesEncoding
+            except (UnicodeError, LookupError):
+                pass
+
+        # try platform default
+        if not encpick:
+            try:
+                text.encode(sys.getdefaultencoding())
+                encpick = sys.getdefaultencoding()
+            except (UnicodeError, LookupError):
+                pass
+
+        # open in text mode fo endlines + encoding
+        if not encpick:
+            showerror('PyEdit', 'Could not encode for file ' + filename)
+        else:
+            try:
+                file = open(filename, 'w', encoding=encpick)
+                file.write(text)
+                file.close()
+            except:
+                showerror('PyEdit', 'Could not write file ' + filename)
+            else:
+                self.setFileName(filename)
+                self.text.edit_modified(0)
+                self.knownEncoding = encpick
+
+    def onNew(self):
+        """
+        start editing a new file from scratch in current window;
+        see onClone to popup a new independent edit window instead;
+        """
+        if self.text_edit_modified():
+            if not askyesno('PyEdit', 'Text has changed: discard changes?'):
+                return
+        self.setFileName(None)
+        self.clearAllText()
+        self.text.edit_reset()
+        self.text.edit_modified(0)
+        self.knownEncoding = None
+
+    def onQuit(self):
+        """
+        on Quit menu/toolbar select and wm border X button in toplevel windows;
+        2.1: don't exit app if others changed; 2.0: don't ask if self unchanged;
+        moved to the toplevel window classes at the end since may vary per
+        usage: a Quit in GUI might quit() to exit, destroy() just one Toplevel,
+        Tk, or edit frame, or not be provided at all when run as an attached
+        component; check self for changes, and if might quit(), main windows
+        should check other windows in the process-wide list to see if they have
+        changed too;
+        """
+        assert False, 'onQuit must be defined in window-specific subclass'
+
+    def text_edit_modified(self):
+        """
+        2.1: this now works! seems to have been a bool result type issue in
+        tkinter; 2.0: self.text.edit_modified() broken in Python 2.4: do
+        manually for now;
+        """
+        return self.text.edit_modified()
+        #return self.tk.call((self.text._w, 'edit') + ('modified', None))
