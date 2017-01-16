@@ -564,4 +564,139 @@ class TextEditor:  # mix with menu/toolbar Frame class
         self.onFind(self.lastfind)
 
     def onChange(self):
+        """
+        non-modal find/change dialog
+        2.1: pass per-dialog inputs to callbacks, may be > 1 change dialog open
+        """
+        new = Toplevel(self)
+        new.title('PyEdit - change')
+        Label(new, text='Find text?', relief=RIDGE, width=15).grid(row=0,
+                                                                   column=0)
+        Label(new, text='Change to?', relief=RIDGE, width=15).grid(row=1,
+                                                                   column=0)
+        entry1 = Entry(new)
+        entry2 = Entry(new)
+        entry1.grid(row=0, column=1, sticky=EW)
+        entry2.grid(row=1, column=1, sticky=EW)
+
+        def onFind():
+            self.onFind(entry1.get())
+
+        def onApply():
+            self.onDoChange(entry1.get(), entry2.get())
+
+        Button(new, text='Find', command=onFind).grid(row=0, column=2,
+                                                      sticky=EW)
+        Button(new, text='Apply', command=onApply).grid(row=1, column=2,
+                                                        sticky=EW)
+        new.columnconfigure(1, weight=1)
+
+    def onDoChange(self, findtext, changeto):
+        # on Apply in change dialog: change and refind
+        if self.text.tag_ranges(SEL):
+            self.text.delete(SEL_FIRST, SEL_LAST)
+            self.text.insert(INSERT, changeto)
+            self.text.see(INSERT)
+            self.onFind(findtext)
+            self.text.update()
+
+    def onGrep(self):
+        """
+        new in version 2.1: threaded external file search;
+        search matched filenames in directory tree for string;
+        listbox clicks open matched file at line of occurrene;
+
+        search is threaded so the GUI remains active and is not
+        blocked, and to allow multiple greps to overlap in time;
+        could use threadtools, but avoid loop in no active grep;
+
+        grep Unicode policy: text files content in the searched tree
+        might be in any Unicode encoding: we don't ask about each (as
+        we do for opens), but allow the encoding used for the entire
+        tree to be input, preset it to the platform filesystem or text
+        default, and skip files that fail to decode; in worst cases, users
+        may need to run grep N times if N encodings might exist; else opens
+        may raise exceptions, and opening in binary mode might fail to match
+        encoded text against search string;
+
+        TBD: better to issue an error if any file fails to decode? but utf-16
+        2-bytes/char format created in Notepad may decode without error per
+        utf-8, and search strings won't be found;
+        TBD: could allow input of multiple encoding names, split on comma, try
+        each one for every file, without open loadEncode?
+        """
+        from ..ShellGui.formrows import makeFormRow
+
+        # nonmodal dialog: get dirname, filenamepatt, grepkey
+        popup = Toplevel()
+        popup.title('PyEdit - grep')
+        var1 = makeFormRow(popup, label='Directory root',
+                           width=18, browse=False)
+        var2 = makeFormRow(popup, label='Filename pattern',
+                           width=18, browse=False)
+        var3 = makeFormRow(popup, label='Search string',
+                           width=18, browse=False)
+        var4 = makeFormRow(popup, label='Content encoding',
+                           width=18, browse=False)
+        var1.set('.')
+        var2.set('*.py')
+        var4.set(sys.getdefaultencoding())
+        cb = lambda: self.onDoGrep(var1.get(), var2.get(),
+                                   var3.get(), var4.get())
+        Button(popup, text='Go', command=cb).pack()
+
+    def onDoGrep(self, dirname, filenamepatt, grepkey, encoding):
+        """
+        on Go in grep dialog: populate scrolled list with matches
+        tbd: should producer thread be daemon so it dies with app?
+        """
+        import threading, queue
+
+        # make nonmodal uncloseable dialog
+        mypopup = Tk()
+        mypopup.title('PyEdit - grepping')
+        status = Label(mypopup, text='Grep thread searching for: %r...'
+                       % grepkey)
+        status.pack(padx=20, pady=20)
+        mypopup.protocol('WM_DELETE_WINDOW', lambda: None)  # ignore X close
+
+        # start producer thread, consumer loop
+        myqueue = queue.Queue()
+        threadargs = (filenamepatt, dirname, grepkey, encoding, myqueue)
+        threading.Thread(target=self.grepThreadProducer,
+                         args=threadargs).start()
+        self.grepThreadConsumer(grepkey, encoding, myqueue, mypopup)
+
+    def grepThreadProducer(self, filenamepatt, dirname, grepkey,
+                           encoding, myqueue):
+        """
+        in a non-GUI parallel thread: queue find.find results list;
+        could also queue matches as found, but need to keep window;
+        file content and file names may both fail to decode here;
+
+        TBD: could pass encoded bytes to find() to avoid filename decoding
+        excs in os.walk/listdir, but which encoding to use:
+        sys.getfilesystemencoding() if not None? see also Chapter 6
+        footnote issue: 3.1 fnmatch always converts bytes per Latin-1;
+        """
+        from ...Tools.find import find
+
+        matches = []
+        try:
+            for filepath in find(pattern=filenamepatt, startdir=dirname):
+                try:
+                    textfile = open(filepath, encoding=encoding)
+                    for (linenum, linestr) in enumerate(textfile):
+                        if grepkey in linestr:
+                            msg = '%s@%d [%s]' % (filepath, linenum + 1,
+                                                  linestr)
+                            matches.append(msg)
+                except UnicodeError as X:
+                    print('Unicode error in:', filepath, X)
+                except IOError as X:
+                    print('IO error in:', filepath, X)
+        finally:
+            myqueue.put(matches)
+
+    def grepThreadConsumer(self, grepkey, encoding, myqueue, mypopup):
         pass
