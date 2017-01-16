@@ -470,3 +470,98 @@ class TextEditor:  # mix with menu/toolbar Frame class
         """
         return self.text.edit_modified()
         #return self.tk.call((self.text._w, 'edit') + ('modified', None))
+
+    ##########################################################################
+    # Edit menu commands
+    ##########################################################################
+
+    def onUndo(self):
+        try:
+            self.text.edit_undo()
+        except TclError:
+            showinfo('PyEdit', 'Nothing to undo')
+
+    def onRedo(self):
+        try:
+            self.text.edit_redo()
+        except TclError:
+            showinfo('PyEdit', 'Nothing to redo')
+
+    def onCopy(self):
+        if not self.text.tag_ranges(SEL):
+            showerror('PyEdit', 'No text selected')
+        else:
+            text = self.text.get(SEL_FIRST, SEL_LAST)
+            self.clipboard_clear()
+            self.clipboard_append(text)
+
+    def onDelete(self):
+        if not self.text.tag_ranges(SEL):
+            showerror('PyEdit', 'No text selected')
+        else:
+            self.text.delete(SEL_FIRST, SEL_LAST)
+
+    def onCut(self):
+        if not self.text.tag_ranges(SEL):
+            showerror('PyEdit', 'No text selected')
+        else:
+            self.onCopy()
+            self.onDelete()
+
+    def onPaste(self):
+        try:
+            text = self.selection_get(selection='CLIPBOARD')
+        except TclError:
+            showerror('PyEdit', 'Nothing to paste')
+            return
+        self.text.insert(INSERT, text)
+        self.text.tag_remove(SEL, '1.0', END)
+        self.text.tag_add(SEL, INSERT+'-%dc' % len(text), INSERT)
+        self.text.see(INSERT)
+
+    def onSelectALL(self):
+        self.text.tag_add(SEL, '1.0', END+'-1c')
+        self.text.mark_set(INSERT, '1.0')
+        self.text.see(INSERT)
+
+    ##########################################################################
+    # Search menu commands
+    ##########################################################################
+
+    def onGoto(self, forceline=None):
+        line = forceline or askinteger('PyEdit', 'Enter line number')
+        self.text.update()
+        self.text.focus()
+        if line is not None:
+            maxindex = self.text.index(END+'-1c')
+            maxline = int(maxindex.split('.')[0])
+            if 0 < line <= maxline:
+                self.text.mark_set(INSERT, '%d.0' % line)
+                self.text.tag_remove(SEL, '1.0', END)
+                self.text.tag_add(SEL, INSERT, 'insert + 1l')
+                self.text.see(INSERT)
+            else:
+                showerror('PyEdit', 'Bad line number')
+
+    def onFind(self, lastkey=None):
+        key = lastkey or askstring('PyEdit', 'Enter search string')
+        self.text.update()
+        self.text.focus()
+        self.lastfind = key
+        if key:
+            nocase = configs.get('caseinsens', True)
+            where = self.text.search(key, INSERT, END, nocase=nocase)
+            if not where:
+                showerror('PyEdit', 'String not found')
+            else:
+                pastkey = where + '+%dc' %len(key)
+                self.text.tag_remove(SEL, '1.0', END)
+                self.text.tag_add(SEL, where, pastkey)
+                self.text.mark_set(INSERT, pastkey)
+                self.text.see(where)
+
+    def onRefind(self):
+        self.onFind(self.lastfind)
+
+    def onChange(self):
+        pass
