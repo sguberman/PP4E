@@ -719,3 +719,218 @@ class TextEditor:  # mix with menu/toolbar Frame class
                 showinfo('PyEdit', 'Grep found no matches for: %r' % grepkey)
             else:
                 self.grepMatchesList(matches, grepkey, encoding)
+
+    def grepMatchesList(self, matches, grepkey, encoding):
+        """
+        populate list after successful matches;
+        we already know Unicode encoding from the search: use
+        it here when filename clicked, so open doesn't ask user;
+        """
+        from ..Tour.scrolledlist import ScrolledList
+
+        print('Matches for %s: %s' % (grepkey, len(matches)))
+
+        # catch list double-click
+        class ScrolledFilenames(ScrolledList):
+            def runCommand(self, selection):
+                file, line = selection.split(' [', 1)[0].split('@')
+                editor = TextEditorMainPopup(loadFirst=file,
+                                             winTitle=' grep match',
+                                             loadEncode=encoding)
+                editor.onGoto(int(line))
+                editor.text.focus_force()
+
+        # new nonmodal window
+        popup = Tk()
+        popup.title('PyEdit - grep matches: %r (%s)' % (grepkey, encoding))
+        ScrolledFilenames(parent=popup, options=matches)
+
+    ##########################################################################
+    # Tools menu commands
+    ##########################################################################
+
+    def onFontList(self):
+        self.fonts.append(self.fonts[0])
+        del self.fonts[0]
+        self.text.config(font=self.fonts[0])
+
+    def onColorList(self):
+        self.colors.append(self.colors[0])
+        del self.colors[0]
+        self.text.config(fg=self.colors[0]['fg'], bg=self.colors[0]['bg'])
+
+    def onPickFg(self):
+        self.pickColor('fg')
+
+    def onPickBg(self):
+        self.pickColor('bg')
+
+    def pickColor(self, part):
+        (triple, hexstr) = askcolor()
+        if hexstr:
+            self.text.config(**{part: hexstr})
+
+    def onInfo(self):
+        """
+        popup dialog giving text statistics and cursor location;
+        caveat (2.1): Tk insert position column counts a tab as one
+        character: translate to next multiple of 8 to match visual?
+        """
+        text = self.getAllText()
+        bytes = len(text)
+        lines = len(text.split('\n'))
+        words = len(text.split())
+        index = self.text.index(INSERT)
+        where = tuple(index.split('.'))
+        showinfo('PyEdit Information',
+                 'Current location:\n\n' +
+                 'line:\t%s\ncolumn:\t%s\n\n' % where +
+                 'File text statistics:\n\n' +
+                 'chars:\t%d\nlines:\t%d\nwords:\t%d\n' %
+                 (bytes, lines, words))
+
+    def onClone(self, makewindow=True):
+        """
+        open a new edit window without changing one already open (onNew);
+        inherits quit and other behavior of the window that it clones;
+        2.1: subclass must redefine/replace this if makes its own popup,
+        else this creates a bogus extra window here which will be empty;
+        """
+        if not makewindow:
+            new = None
+        else:
+            new = Toplevel()
+        myclass = self.__class__
+        myclass(new)
+
+    def onRunCode(self, parallelmode=True):
+        """
+        run Python code being edited -- not an IDE, but handy; tries to run
+        in file's dir, not cwd (may be PP4E root); inputs and adds commandline
+        arguments for script files;
+
+        code's stdin/out/err = editor's start window, if any: run with a
+        console window to see code's print outputs; but parallelmode uses
+        start to open a DOS box for I/O; module search path will include '.'
+        dir where started; if non-file mode, code's Tk root may be PyEdit's
+        window; subprocess or multiprocessing modules may work here too;
+
+        2.1: fixed to use base file name after chdir, not path;
+        2.1: use StartArgs to allow args in file mode on Windows;
+        2.1: run an update() after 1st dialog else 2nd dialog sometimes does
+        not appear in rare cases;
+        """
+        def askcmdargs():
+            return askstring('PyEdit', 'Commandline arguments?') or ''
+
+        from ...launchmodes import System, Start, StartArgs, Fork
+
+        filemode = False
+        thefile = str(self.getFileName())
+        if os.path.exists(thefile):
+            filemode = askyesno('PyEdit', 'Run from file?')
+            self.update()
+        if not filemode:
+            cmdargs = askcmdargs()
+            namespace = {'__name__': '__main__'}
+            sys.argv = [thefile] + cmdargs.split()
+            exec(self.getAllText() + '\n', namespace)
+        elif self.text_edit_modified():
+            showerror('PyEdit', 'Text changed: you must save before run')
+        else:
+            cmdargs = askcmdargs()
+            mycwd = os.getcwd()
+            dirname, filename = os.path.split(thefile)
+            os.chdir(dirname or mycwd)
+            thecmd = filename + ' ' + cmdargs
+            if not parallelmode:
+                System(thecmd, thecmd)()
+            else:
+                if sys.platform[:3] == 'win':
+                    run = StartArgs if cmdargs else Start
+                    run(thecmd, thecmd)()
+                else:
+                    Fork(thecmd, thecmd)()
+            os.chdir(mycwd)
+
+    def onPickFont(self):
+        """
+        2.0: nonmodal font spec dialog
+        2.1: pass per-dialog inputs to callback, may be > 1 font dialog open
+        """
+        from ..ShellGui.formrows import makeFormRow
+
+        popup = Toplevel(self)
+        popup.title('PyEdit - font')
+        var1 = makeFormRow(popup, label='Family', browse=False)
+        var2 = makeFormRow(popup, label='Size', browse=False)
+        var3 = makeFormRow(popup, label='Syle', browse=False)
+        var1.set('courier')
+        var2.set('12')
+        var3.set('bold italic')
+        Button(popup, text='Apply', command=
+               lambda: self.onDoFont(var1.get(), var2.get(),
+                                     var3.get())).pack()
+
+    def onDoFont(self, family, size, style):
+        try:
+            self.text.config(font=(family, int(size), style))
+        except:
+            showerror('PyEdit', 'Bad font specification')
+
+    ##########################################################################
+    # Utilities, useful outside this class
+    ##########################################################################
+
+    def isEmpty(self):
+        return not self.getAllText()
+
+    def getAllText(self):
+        return self.text.get('1.0', END+'-1c')
+
+    def setAllText(self, text):
+        """
+        caller: call self.update() first if just packed, else the initial
+        position may be at line 2, not line 1 (2.1; Tk bug?)
+        """
+        self.text.delete('1.0', END)
+        self.text.insert(END, text)
+        self.text.mark_set(INSERT, '1.0')
+        self.text.see(INSERT)
+
+    def clearAllText(self):
+        self.text.delete('1.0', END)
+
+    def getFileName(self):
+        return self.currfile
+
+    def setFileName(self, name):
+        self.currfile = name
+        self.filelabel.config(text=str(name))
+
+    def setKnownEncoding(self, encoding='utf-8'):
+        self.knownEncoding = encoding
+
+    def setBg(self, color):
+        self.text.config(bg=color)
+
+    def setFg(self, color):
+        self.text.config(fg=color)
+
+    def setFont(self, font):
+        self.text.config(font=font)
+
+    def setHeight(self, lines):
+        self.text.config(height=lines)
+
+    def setWidth(self, chars):
+        self.text.config(width=chars)
+
+    def clearModified(self):
+        self.text.edit_modified(0)
+
+    def isModified(self):
+        return self.text_edit_modified()
+
+    def help(self):
+        showinfo('About PyEdit', helptext % ((Version,)*2))
