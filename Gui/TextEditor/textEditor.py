@@ -934,3 +934,50 @@ class TextEditor:  # mix with menu/toolbar Frame class
 
     def help(self):
         showinfo('About PyEdit', helptext % ((Version,)*2))
+
+
+##############################################################################
+# Ready-to-use editor classes
+# mixes in a GuiMaker Frame subclass which builds menu and toolbars
+#
+# these classes are common use cases, but other configurations are possible;
+# call TextEditorMain().mainloop() to start PyEdit as a standalone program;
+# redefine/extend onQuit in a subclass to catch exit or destroy (see PyView);
+# caveat: could use windows.py for icons, but quit protocol is custom here.
+##############################################################################
+
+# ----------------------------------------------------------------------------
+# 2.1: on quit(), don't silently exit entire app if any other changed edit
+# windows are open in the process - changes would be lost because all other
+# windows are closed too, including multiple Tk editor parents; uses a list
+# to keep track of all PyEdit window instances open in process; this may be
+# too broad (if we destroy() instead of quit(), need only check children of
+# parent being destroyed), but better to err on side of being too inclusive;
+# onQuit moved here because varies per window type and is not present for all;
+#
+# assumes a TextEditorMainPopup is never a parent to other editor windows -
+# Toplevel children are destroyed with their parents; this does not address
+# closes outside the scope of PyEdit classes here (tkinter quit is available
+# on every widget, and any widget type may be a Toplevel parent!); client is
+# responsible for checking for editor content changes in all uncovered cases;
+# note that tkinter's <Destroy> bind event won't help here, because its
+# callback cannot run GUI operations such as text change tests and fetches -
+# see the book and destroyer.py for more details on this event;
+# ----------------------------------------------------------------------------
+
+##############################################################################
+# when text editor owns the window
+##############################################################################
+
+class TextEditorMain(TextEditor, GuiMakerWindowMenu):
+    """
+    main PyEdit windows that quit() to exit app on a Quit in GUI, and build
+    a menu on a window; parent may be default Tk, explicit Tk, or Toplevel:
+    parent must be a window, and probably should be a Tk so this isn't
+    silently destroyed and closed with a parent; all main PyEdit windows check
+    all other PyEdit windows open in the process for changes on a Quit in the
+    GUI, since a quit() here will exit the entire app; the editor's frame
+    need not occupy entire window (may have other parts: see PyView), but its
+    Quit ends program; onQuit is run for Quit in toolbar or File menu, as well
+    as window border X;
+    """
